@@ -1,4 +1,3 @@
-```batch
 @echo off
 setlocal EnableDelayedExpansion
 
@@ -38,16 +37,28 @@ echo All %NUM_FILES% files found! Starting high-quality join + encode for YouTub
 echo This may take a while, but the result will look excellent.
 echo.
 
-:: Create temporary concat list
->file_list.txt (
-    for /L %%i in (1,1,%NUM_FILES%) do echo file '%%i.mp4'
+:: Build inputs and filter_complex for concat filter to handle sync issues
+set "inputs="
+for /L %%i in (1,1,%NUM_FILES%) do (
+    set "inputs=!inputs! -i %%i.mp4"
 )
 
+set "filter="
+set "concat_inputs="
+set /a "file_index=0"
+for /L %%i in (1,1,%NUM_FILES%) do (
+    set "filter=!filter![!file_index!:v]setpts=PTS-STARTPTS[v!file_index!];[!file_index!:a]asetpts=PTS-STARTPTS[a!file_index!];"
+    set "concat_inputs=!concat_inputs![v!file_index!][a!file_index!]"
+    set /a "file_index+=1"
+)
+set "filter=!filter! !concat_inputs! concat=n=%NUM_FILES%:v=1:a=1[v][a];[v]scale=trunc(iw/2)*2:trunc(ih/2)*2[outv]"
+
 :: High-quality YouTube preset (CRF 18 = visually lossless, H.264 + AAC)
-ffmpeg -f concat -safe 0 -i file_list.txt ^
+ffmpeg %inputs% ^
+       -filter_complex "!filter!" ^
+       -map "[outv]" -map "[a]" ^
        -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p ^
        -c:a aac -b:a 192k -ar 48000 ^
-       -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" ^
        -movflags +faststart ^
        "YouTube_Ready_Full_HD.mp4" -y
 
@@ -56,13 +67,10 @@ if %errorlevel% neq 0 (
     echo.
     echo ERROR: FFmpeg execution failed! Check if FFmpeg is installed and in your PATH.
     echo Common issues: FFmpeg not found, input files corrupted, or insufficient disk space.
-    del file_list.txt
+    echo Also, ensure all input files have video and audio streams.
     pause
     exit /b 1
 )
-
-:: Clean up on success
-del file_list.txt
 
 echo.
 echo ╔══════════════════════════════════════════════════╗
@@ -75,4 +83,3 @@ echo ╚════════════════════════
 echo.
 
 pause
-```
